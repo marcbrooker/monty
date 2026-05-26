@@ -337,6 +337,10 @@ pub enum StaticStrings {
     // Type attributes
     #[strum(serialize = "__name__")]
     DunderName,
+    #[strum(serialize = "__enter__")]
+    Enter,
+    #[strum(serialize = "__exit__")]
+    Exit,
 
     // ==========================
     // pathlib module strings
@@ -384,6 +388,12 @@ pub enum StaticStrings {
     Unlink,
     Rmdir,
     Rename,
+
+    // Path.open(): wraps the same `OsFunction::Open` round-trip as the
+    // `open()` builtin. Handled in `Path::py_call_attr` with custom
+    // mode/kwarg validation (so it cannot go through the generic
+    // `OsFunction::try_from(StaticStrings)` short-circuit).
+    Open,
 
     // ==========================
     // File object methods and attributes
