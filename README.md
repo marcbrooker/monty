@@ -1,22 +1,13 @@
 <div align="center">
-  <h1>Monty</h1>
+  <h1>Monty + Cedar Policy</h1>
 </div>
 <div align="center">
-  <h3>A minimal, secure Python interpreter written in Rust for use by AI.</h3>
-</div>
-<div align="center">
-  <a href="https://github.com/pydantic/monty/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/pydantic/monty/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codspeed.io/pydantic/monty?utm_source=badge"><img src="https://img.shields.io/badge/CodSpeed-Performance%20Tracked-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNOCAwTDAgOEw4IDE2TDE2IDhMOCAwWiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=" alt="Codspeed"></a>
-  <a href="https://codecov.io/gh/pydantic/monty"><img src="https://codecov.io/gh/pydantic/monty/graph/badge.svg?token=HX4RDQX5OG" alt="Coverage"></a>
-  <a href="https://pypi.python.org/pypi/pydantic-monty"><img src="https://img.shields.io/pypi/v/pydantic-monty.svg" alt="PyPI"></a>
-  <a href="https://github.com/pydantic/monty"><img src="https://img.shields.io/pypi/pyversions/pydantic-monty.svg" alt="versions"></a>
-  <a href="https://github.com/pydantic/monty/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pydantic/monty.svg?v=2" alt="license"></a>
-  <a href="https://logfire.pydantic.dev/docs/join-slack/"><img src="https://img.shields.io/badge/Slack-Join%20Slack-4A154B?logo=slack" alt="Join Slack" /></a>
+  <h3>An experimental fork of Monty with Cedar policy-based access control.</h3>
 </div>
 
 ---
 
-**Experimental** - This project is still in development, and not ready for the prime time.
+**Experimental fork** - This is an experimental fork of [Monty](https://github.com/pydantic/monty) that adds [Cedar](https://www.cedarpolicy.com/) policy support for fine-grained authorization of sandbox operations. Cedar policies let you declaratively control which filesystem paths, environment variables, and external functions sandboxed code can access.
 
 A minimal, secure Python interpreter written in Rust for use by AI.
 
@@ -202,6 +193,140 @@ result = progress2.resume({'return_value': 'response data'})
 print(result.output)
 #> response data
 ```
+
+### Cedar Policies
+
+This fork adds Cedar policy support to control what sandboxed code is allowed to do. Policies are written in the [Cedar language](https://www.cedarpolicy.com/) and evaluated against every sandbox operation.
+
+#### Basic Example: Allow reads, deny writes
+
+```python
+from pydantic_monty import Monty, MountDir, Policy
+
+# Define a policy that allows reading files under /data but denies all writes
+policy = Policy('''
+    permit(principal, action == Monty::Action::"fs:read", resource)
+    when { resource.path like "/data/*" };
+
+    permit(principal, action == Monty::Action::"fs:exists", resource);
+''')
+
+m = Monty("from pathlib import Path; Path('/data/config.json').read_text()")
+result = m.run(
+    mount=MountDir('/data', './my_data_dir', mode='read-write'),
+    policy=policy,
+)
+# Reading works - policy permits fs:read on /data/*
+
+m_write = Monty("from pathlib import Path; Path('/data/hack.txt').write_text('pwned')")
+m_write.run(mount=MountDir('/data', './my_data_dir', mode='read-write'), policy=policy)
+# Raises PermissionError: policy denied action 'fs:write' on '/data/hack.txt'
+```
+
+#### Controlling external function access
+
+```python
+from pydantic_monty import Monty, Policy
+
+# Only allow calling specific external functions
+policy = Policy('''
+    permit(principal, action == Monty::Action::"ext:call", resource)
+    when { resource.name == "fetch_weather" };
+
+    permit(principal, action == Monty::Action::"ext:call", resource)
+    when { resource.name == "get_time" };
+''')
+
+m = Monty('result = fetch_weather("London")')
+result = m.run(
+    external_functions={'fetch_weather': lambda city: f'Sunny in {city}'},
+    policy=policy,
+)
+# Works - fetch_weather is permitted
+
+m2 = Monty('result = run_shell("rm -rf /")')
+m2.run(
+    external_functions={'run_shell': lambda cmd: __import__('os').system(cmd)},
+    policy=policy,
+)
+# Raises PermissionError: policy denied action 'ext:call' on 'run_shell'
+```
+
+#### Restricting environment variable access
+
+```python
+from pydantic_monty import Monty, MountDir, Policy
+
+# Allow reading only specific env vars
+policy = Policy('''
+    permit(principal, action == Monty::Action::"env:read", resource)
+    when { resource.name == "HOME" || resource.name == "PATH" };
+
+    permit(principal, action == Monty::Action::"fs:read", resource);
+    permit(principal, action == Monty::Action::"fs:exists", resource);
+''')
+
+m = Monty("import os; os.getenv('HOME', 'unknown')")
+m.run(mount=MountDir('/data', '/tmp'), os=lambda *a: '/home/user', policy=policy)
+# Works - HOME is permitted
+
+m2 = Monty("import os; os.getenv('SECRET_API_KEY', 'unknown')")
+m2.run(mount=MountDir('/data', '/tmp'), os=lambda *a: 'leaked!', policy=policy)
+# Raises PermissionError: policy denied action 'env:read' on 'SECRET_API_KEY'
+```
+
+#### Allow-by-default mode (blocklist)
+
+```python
+from pydantic_monty import Monty, MountDir, Policy
+
+# Start permissive, then block specific actions
+policy = Policy(
+    'forbid(principal, action == Monty::Action::"fs:write", resource);',
+    default='allow',
+)
+
+# Everything works except writes
+m = Monty("from pathlib import Path; Path('/data/file.txt').read_text()")
+m.run(mount=MountDir('/data', './data', mode='read-write'), policy=policy)  # OK
+
+m = Monty("from pathlib import Path; Path('/data/file.txt').write_text('x')")
+m.run(mount=MountDir('/data', './data', mode='read-write'), policy=policy)
+# Raises PermissionError: policy denied action 'fs:write' on '/data/file.txt'
+```
+
+#### JavaScript/TypeScript
+
+```typescript
+import { Monty, MountDir, Policy } from '@pydantic/monty'
+
+const policy = new Policy(`
+    permit(principal, action == Monty::Action::"fs:read", resource)
+    when { resource.path like "/data/*" };
+    permit(principal, action == Monty::Action::"fs:exists", resource);
+`)
+
+const m = new Monty("from pathlib import Path; Path('/data/hello.txt').read_text()")
+const result = m.run({ mount: new MountDir('/data', './data'), policy })
+```
+
+#### Available actions
+
+| Cedar Action | Controls |
+|---|---|
+| `Monty::Action::"fs:read"` | Reading files, stat, resolve, absolute path |
+| `Monty::Action::"fs:write"` | Writing/appending to files, open in write mode |
+| `Monty::Action::"fs:exists"` | Existence checks (exists, is_file, is_dir, is_symlink) |
+| `Monty::Action::"fs:list"` | Directory listing (iterdir) |
+| `Monty::Action::"fs:create"` | Creating directories (mkdir) |
+| `Monty::Action::"fs:delete"` | Deleting files and directories |
+| `Monty::Action::"fs:rename"` | Renaming/moving files |
+| `Monty::Action::"env:read"` | Reading environment variables |
+| `Monty::Action::"ext:call"` | Calling external (host) functions |
+
+Policies use Cedar's `resource.path` attribute for filesystem operations (matched with `like` for glob patterns) and `resource.name` for env vars and external functions.
+
+---
 
 ### Rust
 
