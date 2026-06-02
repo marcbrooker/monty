@@ -28,7 +28,12 @@ mod error;
 mod request;
 mod schema;
 
-use std::{fmt, str::FromStr};
+use std::{
+    collections::HashMap,
+    fmt,
+    str::FromStr,
+    sync::{Mutex, PoisonError},
+};
 
 use cedar_policy::{Authorizer, Decision, Entities, PolicySet, Schema};
 use monty::OsFunctionCall;
@@ -88,6 +93,12 @@ pub struct PolicyEngine {
     schema: Schema,
     principal_name: String,
     default_decision: DefaultDecision,
+    /// Cache of authorization decisions keyed by (action, resource_id).
+    ///
+    /// The policy set is immutable after construction, so decisions are
+    /// deterministic and safe to cache. Uses `Mutex` for thread-safe interior
+    /// mutability since the engine may be shared across thread boundaries.
+    cache: Mutex<HashMap<(&'static str, String), bool>>,
 }
 
 impl PolicyEngine {
@@ -114,6 +125,7 @@ impl PolicyEngine {
             schema,
             principal_name: config.principal,
             default_decision: config.default_decision,
+            cache: Mutex::new(HashMap::new()),
         })
     }
 
@@ -148,11 +160,12 @@ impl PolicyEngine {
         self.evaluate(&request, &entities, "ext:call", function_name)
     }
 
-    /// Core evaluation: runs the Cedar authorizer and interprets the decision.
+    /// Core evaluation: checks the cache first, then runs the Cedar authorizer.
     ///
     /// For `DefaultDecision::Deny`: uses Cedar's native semantics directly.
     /// For `DefaultDecision::Allow`: allows unless an explicit `forbid` policy matched
-    /// (Cedar returns Deny with non-empty reasons).
+    /// (Cedar returns Deny with empty reasons when no policies matched at all;
+    /// in allow-by-default mode, that should be treated as allowed).
     fn evaluate(
         &self,
         request: &cedar_policy::Request,
@@ -160,18 +173,38 @@ impl PolicyEngine {
         action: &'static str,
         resource_id: &str,
     ) -> Result<(), PolicyDenied> {
+        // Check cache first — policy set is immutable, so decisions are stable.
+        let cache_key = (action, resource_id.to_owned());
+        if let Some(&denied) = self
+            .cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&cache_key)
+        {
+            return if denied {
+                Err(PolicyDenied {
+                    action,
+                    resource: cache_key.1,
+                })
+            } else {
+                Ok(())
+            };
+        }
+
         let response = self.authorizer.is_authorized(request, &self.policy_set, entities);
 
         let denied = match self.default_decision {
-            // Deny-by-default: use Cedar's decision directly.
             DefaultDecision::Deny => response.decision() == Decision::Deny,
-            // Allow-by-default: only deny if an explicit forbid policy fired.
-            // Cedar returns Deny with empty reasons when no policies matched at all;
-            // in allow-by-default mode, that should be treated as allowed.
             DefaultDecision::Allow => {
                 response.decision() == Decision::Deny && response.diagnostics().reason().next().is_some()
             }
         };
+
+        // Populate cache.
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(cache_key, denied);
 
         if denied {
             Err(PolicyDenied {
