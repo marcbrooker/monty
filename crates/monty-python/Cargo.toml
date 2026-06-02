@@ -19,6 +19,7 @@ crate-type = ["cdylib"]
 [dependencies]
 ahash = { workspace = true }
 monty = { path = "../monty" }
+monty-policy = { path = "../monty-policy" }
 monty_type_checking = { path = "../monty-type-checking" }
 pyo3 = { version = "0.28", features = ["indexmap", "generate-import-lib", "num-bigint"] }
 num-bigint = { workspace = true }

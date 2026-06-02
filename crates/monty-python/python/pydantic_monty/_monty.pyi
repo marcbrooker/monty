@@ -24,6 +24,7 @@ __all__ = [
     'MontyTypingError',
     'MontyFileHandle',
     'MountDir',
+    'Policy',
     'Frame',
     'load_snapshot',
     'load_repl_snapshot',
@@ -67,6 +68,23 @@ class MountDir:
         mode: Literal['read-only', 'read-write', 'overlay'] = 'overlay',
         write_bytes_limit: int | None = None,
     ) -> MountDir: ...
+
+@final
+class Policy:
+    """A Cedar policy controlling what sandboxed code can do.
+
+    Policies are written in the Cedar language and evaluated against each
+    sandbox operation (filesystem access, environment variables, external
+    function calls). By default, operations not explicitly permitted are denied.
+    """
+
+    def __new__(
+        cls,
+        policy_text: str,
+        *,
+        principal: str = 'anonymous',
+        default: Literal['deny', 'allow'] = 'deny',
+    ) -> Policy: ...
 
 @final
 class Monty:
@@ -156,6 +174,7 @@ class Monty:
         print_callback: Callable[[Literal['stdout'], str], None] | CollectStreams | CollectString | None = None,
         mount: MountDir | list[MountDir] | None = None,
         os: Callable[[OsFunction, tuple[Any, ...], dict[str, Any]], Any] | None = None,
+        policy: Policy | None = None,
     ) -> Any:
         """
         Execute the code and return the result.
@@ -189,6 +208,7 @@ class Monty:
         print_callback: Callable[[Literal['stdout'], str], None] | CollectStreams | CollectString | None = None,
         mount: MountDir | list[MountDir] | None = None,
         os: Callable[[OsFunction, tuple[Any, ...], dict[str, Any]], Any] | None = None,
+        policy: Policy | None = None,
     ) -> FunctionSnapshot | NameLookupSnapshot | FutureSnapshot | MontyComplete:
         """
         Start the code execution and return a progress object, or completion.

@@ -25,10 +25,11 @@ use crate::{
     build::{ConstructInputs, extract_type_check_stubs, py_type_check},
     convert::{get_docstring, monty_to_py, py_to_monty_value},
     dataclass::DcRegistry,
-    exceptions::{MontyError, exc_py_to_monty},
+    exceptions::{MontyError, exc_monty_to_py, exc_py_to_monty},
     external::{ExternalFunctionRegistry, dispatch_method_call},
     limits::{CancellationFlag, FutureCancellationGuard, PySignalTracker, extract_limits},
     mount::OsHandler,
+    policy::PyPolicy,
     print_target::PrintTarget,
     repl::{EitherRepl, FromCoreRepl, PyMontyRepl, drive_repl_progress_through_os_calls},
     serialization,
@@ -185,7 +186,7 @@ impl PyMonty {
     /// # Raises
     /// Various Python exceptions matching what the code would raise
     #[expect(clippy::too_many_arguments)]
-    #[pyo3(signature = (*, inputs=None, limits=None, external_functions=None, print_callback=None, mount=None, os=None))]
+    #[pyo3(signature = (*, inputs=None, limits=None, external_functions=None, print_callback=None, mount=None, os=None, policy=None))]
     fn run<'py>(
         &self,
         py: Python<'py>,
@@ -195,6 +196,7 @@ impl PyMonty {
         print_callback: Option<&Bound<'_, PyAny>>,
         mount: Option<&Bound<'_, PyAny>>,
         os: Option<&Bound<'_, PyAny>>,
+        policy: Option<&PyPolicy>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Clone the Arc handle — all clones share the same underlying registry,
         // so auto-registrations during execution are visible to all users.
@@ -208,13 +210,31 @@ impl PyMonty {
         // objects keep accumulating across transitions.
         let print_target = PrintTarget::from_py(print_callback)?;
 
+        let policy_engine = policy.map(|p| &p.engine);
+
         // Run with appropriate tracker type (must branch due to different generic types)
         if let Some(limits) = limits {
             let tracker = PySignalTracker::new(LimitedTracker::new(extract_limits(limits)?));
-            self.run_impl(py, input_values, tracker, external_functions, os_handler, print_target)
+            self.run_impl(
+                py,
+                input_values,
+                tracker,
+                external_functions,
+                os_handler,
+                print_target,
+                policy_engine,
+            )
         } else {
             let tracker = PySignalTracker::new(NoLimitTracker);
-            self.run_impl(py, input_values, tracker, external_functions, os_handler, print_target)
+            self.run_impl(
+                py,
+                input_values,
+                tracker,
+                external_functions,
+                os_handler,
+                print_target,
+                policy_engine,
+            )
         }
     }
 
@@ -228,7 +248,8 @@ impl PyMonty {
     /// The auto-dispatch does **not** persist across subsequent `snapshot.resume()`
     /// calls — once a snapshot is returned, any OS call produced by a later resume
     /// surfaces as a `FunctionSnapshot` with `is_os_function=True`, as before.
-    #[pyo3(signature = (*, inputs=None, limits=None, print_callback=None, mount=None, os=None))]
+    #[expect(clippy::too_many_arguments)]
+    #[pyo3(signature = (*, inputs=None, limits=None, print_callback=None, mount=None, os=None, policy=None))]
     fn start<'py>(
         &self,
         py: Python<'py>,
@@ -237,6 +258,7 @@ impl PyMonty {
         print_callback: Option<&Bound<'_, PyAny>>,
         mount: Option<&Bound<'_, PyAny>>,
         os: Option<&Bound<'_, PyAny>>,
+        policy: Option<&PyPolicy>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Clone the Arc handle — shares the same underlying registry
         let dc_registry = self.dc_registry.clone_ref(py);
@@ -267,7 +289,8 @@ impl PyMonty {
                 // until we reach the first non-OS event. Mounts are taken inside
                 // the helper and put back on every exit path.
                 if let Some(handler) = &os_handler {
-                    drive_run_progress_through_os_calls(py, progress, handler, &print_target, &self.dc_registry)?
+                    let pe = policy.map(|p| &p.engine);
+                    drive_run_progress_through_os_calls(py, progress, handler, &print_target, &self.dc_registry, pe)?
                 } else {
                     progress
                 }
@@ -520,7 +543,7 @@ impl PyMonty {
     ///
     /// Takes explicit field references instead of `&mut self` so that `run()` can
     /// remain `&self` (required for concurrent thread access in PyO3).
-    #[expect(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     fn run_impl<'py>(
         &self,
         py: Python<'py>,
@@ -529,6 +552,7 @@ impl PyMonty {
         external_functions: Option<&Bound<'_, PyDict>>,
         os_handler: Option<OsHandler>,
         print_target: PrintTarget,
+        policy_engine: Option<&monty_policy::PolicyEngine>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Each VM transition builds its own `PrintWriter` via
         // `print_target.with_writer`, which only holds any collector lock for
@@ -582,15 +606,24 @@ impl PyMonty {
                     // Dataclass method calls have method_call=true and the first arg is the instance
                     let return_value = if call.method_call {
                         dispatch_method_call(py, &call.function_name, &call.args, &call.kwargs, &self.dc_registry)
-                    } else if let Some(ext_fns) = external_functions {
-                        let registry = ExternalFunctionRegistry::new(py, ext_fns, &self.dc_registry);
-                        registry.call(&call.function_name, &call.args, &call.kwargs)
                     } else {
-                        put_back(mount_table);
-                        return Err(PyRuntimeError::new_err(format!(
-                            "External function '{}' called but no external_functions provided",
-                            call.function_name
-                        )));
+                        // Check Cedar policy before calling external functions.
+                        if let Some(engine) = policy_engine
+                            && let Err(denied) = engine.authorize_external_call(&call.function_name)
+                        {
+                            put_back(mount_table);
+                            return Err(exc_monty_to_py(py, denied.into()));
+                        }
+                        if let Some(ext_fns) = external_functions {
+                            let registry = ExternalFunctionRegistry::new(py, ext_fns, &self.dc_registry);
+                            registry.call(&call.function_name, &call.args, &call.kwargs)
+                        } else {
+                            put_back(mount_table);
+                            return Err(PyRuntimeError::new_err(format!(
+                                "External function '{}' called but no external_functions provided",
+                                call.function_name
+                            )));
+                        }
                     };
 
                     progress = match py.detach(|| print_target.with_writer(|writer| call.resume(return_value, writer)))
@@ -627,6 +660,14 @@ impl PyMonty {
                     return Err(PyRuntimeError::new_err("async futures not supported with `Monty.run`"));
                 }
                 RunProgress::OsCall(call) => {
+                    // Check Cedar policy before handling the OS call.
+                    if let Some(engine) = policy_engine
+                        && let Err(denied) = engine.authorize_os_call(&call.function_call)
+                    {
+                        put_back(mount_table);
+                        return Err(exc_monty_to_py(py, denied.into()));
+                    }
+
                     let fallback = os_handler.as_ref().and_then(|h| h.fallback.as_ref());
                     // `handle_mount_os_call` can fail during Python⇄Monty conversion;
                     // put mounts back before propagating so the `MountDir` slot doesn't
@@ -692,6 +733,7 @@ impl EitherProgress {
                 handler,
                 print_target,
                 dc_registry,
+                None,
             )?)),
             Self::Limited(p) => Ok(Self::Limited(drive_run_progress_through_os_calls(
                 py,
@@ -699,6 +741,7 @@ impl EitherProgress {
                 handler,
                 print_target,
                 dc_registry,
+                None,
             )?)),
             Self::ReplNoLimit(p, owner) => {
                 let next = {
@@ -2078,6 +2121,7 @@ pub(crate) fn drive_run_progress_through_os_calls<T: ResourceTracker + Send>(
     handler: &OsHandler,
     print_target: &PrintTarget,
     dc_registry: &DcRegistry,
+    policy_engine: Option<&monty_policy::PolicyEngine>,
 ) -> PyResult<RunProgress<T>> {
     let mut mount_table: Option<MountTable> = None;
     let fallback = handler.fallback.as_ref();
@@ -2089,6 +2133,14 @@ pub(crate) fn drive_run_progress_through_os_calls<T: ResourceTracker + Send>(
     loop {
         match progress {
             RunProgress::OsCall(call) => {
+                // Check Cedar policy before dispatching the OS call.
+                if let Some(engine) = policy_engine
+                    && let Err(denied) = engine.authorize_os_call(&call.function_call)
+                {
+                    put_back(&mut mount_table);
+                    return Err(exc_monty_to_py(py, denied.into()));
+                }
+
                 let table = if let Some(table) = mount_table.as_mut() {
                     table
                 } else {

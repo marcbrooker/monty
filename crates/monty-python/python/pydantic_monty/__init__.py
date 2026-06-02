@@ -24,6 +24,7 @@ from ._monty import (
     MontyTypingError,
     MountDir,
     NameLookupSnapshot,
+    Policy,
     __version__,
     load_repl_snapshot,
     load_snapshot,
@@ -61,6 +62,7 @@ __all__ = (
     'MontyTypingError',
     'Frame',
     'MountDir',
+    'Policy',
     'load_snapshot',
     'load_repl_snapshot',
     # os_access

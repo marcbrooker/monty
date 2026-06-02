@@ -13,6 +13,7 @@ mod external;
 mod limits;
 mod monty_cls;
 mod mount;
+mod policy;
 mod print_target;
 mod repl;
 mod serialization;
@@ -24,6 +25,7 @@ pub use convert::PyMontyFileHandle;
 pub use exceptions::{MontyError, MontyRuntimeError, MontySyntaxError, MontyTypingError, PyFrame};
 pub use monty_cls::{PyFunctionSnapshot, PyFutureSnapshot, PyMonty, PyMontyComplete, PyNameLookupSnapshot};
 pub use mount::PyMountDir;
+pub use policy::PyPolicy;
 pub use print_target::{PyCollectStreams, PyCollectString};
 use pyo3::{prelude::*, sync::PyOnceLock, types::PyAny};
 pub use repl::PyMontyRepl;
@@ -105,6 +107,8 @@ mod _monty {
     use super::PyMountDir as MountDir;
     #[pymodule_export]
     use super::PyNameLookupSnapshot as NameLookupSnapshot;
+    #[pymodule_export]
+    use super::PyPolicy as Policy;
     #[pymodule_export]
     use super::serialization::load_repl_snapshot;
     #[pymodule_export]
