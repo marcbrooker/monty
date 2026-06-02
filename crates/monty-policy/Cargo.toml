@@ -1,0 +1,26 @@
+[package]
+name = "monty-policy"
+version = { workspace = true }
+license = { workspace = true }
+rust-version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = "Cedar policy engine for the Monty Python sandbox"
+keywords = { workspace = true }
+categories = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[lib]
+name = "monty_policy"
+path = "src/lib.rs"
+
+[dependencies]
+monty = { path = "../monty" }
+cedar-policy = "4"
+
+[dev-dependencies]
+insta = { workspace = true }
+
+[lints]
+workspace = true
