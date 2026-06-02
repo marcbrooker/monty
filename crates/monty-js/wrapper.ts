@@ -21,6 +21,7 @@ import type {
 import {
   Monty as NativeMonty,
   MountDir,
+  Policy,
   MontyRepl as NativeMontyRepl,
   MontySnapshot as NativeMontySnapshot,
   MontyNameLookup as NativeMontyNameLookup,
@@ -47,12 +48,16 @@ export type {
 export interface RunOptions extends Omit<NativeRunOptions, 'mount'> {
   /** Filesystem mount(s) for the sandbox. */
   mount?: MountDir | MountDir[]
+  /** Cedar policy controlling sandbox access. */
+  policy?: Policy
 }
 
 /** Options for starting execution. */
 export interface StartOptions extends Omit<NativeStartOptions, 'mount'> {
   /** Filesystem mount(s) for the sandbox. */
   mount?: MountDir | MountDir[]
+  /** Cedar policy controlling sandbox access. */
+  policy?: Policy
 }
 
 /** Options for REPL feed(). */
@@ -61,7 +66,7 @@ export interface FeedOptions extends Omit<NativeFeedOptions, 'mount'> {
   mount?: MountDir | MountDir[]
 }
 
-export { MountDir }
+export { MountDir, Policy }
 
 /**
  * Alias for ResourceLimits (deprecated name).
@@ -322,7 +327,8 @@ export class Monty {
    * @throws {MontyRuntimeError} If the code raises an exception
    */
   run(options?: RunOptions): JsMontyObject {
-    const result = this._native.run(options)
+    const policy = options?.policy
+    const result = this._native.run(options, policy)
     if (result instanceof NativeMontyException) {
       throw new MontyRuntimeError(result)
     }

@@ -18,6 +18,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 monty = { path = "../monty" }
+monty-policy = { path = "../monty-policy" }
 monty_type_checking = { path = "../monty-type-checking" }
 napi = { version = "3.0.0", default-features = false, features = ["napi6", "compat-mode"] }
 napi-derive = "3.0.0"

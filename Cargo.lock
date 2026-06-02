@@ -2264,6 +2264,7 @@ name = "monty-js"
 version = "0.0.18"
 dependencies = [
  "monty",
+ "monty-policy",
  "monty_type_checking",
  "napi",
  "napi-build",

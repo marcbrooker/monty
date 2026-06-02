@@ -33,6 +33,7 @@ mod exceptions;
 mod limits;
 mod monty_cls;
 mod mount;
+mod policy;
 
 pub use exceptions::{ExceptionInfo, Frame, JsMontyException, MontyTypingError};
 pub use limits::JsResourceLimits;
@@ -41,3 +42,4 @@ pub use monty_cls::{
     NameLookupLoadOptions, NameLookupResumeOptions, ResumeOptions, RunOptions, SnapshotLoadOptions, StartOptions,
 };
 pub use mount::{MountDir, MountDirOptions};
+pub use policy::{Policy, PolicyOptions};

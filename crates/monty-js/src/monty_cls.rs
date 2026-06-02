@@ -60,6 +60,7 @@ use crate::{
     exceptions::{exc_js_to_monty, JsMontyException, MontyTypingError},
     limits::JsResourceLimits,
     mount::{extract_mounts, OsHandler},
+    policy::Policy,
 };
 
 // =============================================================================
@@ -193,6 +194,7 @@ impl Monty {
         &self,
         env: &'env Env,
         options: Option<RunOptions<'env>>,
+        policy: Option<&Policy>,
     ) -> Result<Either<JsMontyObject<'env>, JsMontyException>> {
         let options = options.unwrap_or_default();
         let input_values = self.extract_input_values(options.inputs, *env)?;
@@ -202,6 +204,7 @@ impl Monty {
             Some(obj) => OsHandler::from_extracted(extract_mounts(obj)?),
             None => None,
         };
+        let policy_engine = policy.map(|p| &p.engine);
 
         let mut print_cb;
         let print_writer = match &options.print_callback {
@@ -212,9 +215,9 @@ impl Monty {
             None => PrintWriter::Stdout,
         };
 
-        // If we have runtime external functions or mounts, use the start/resume
+        // If we have runtime external functions, mounts, or a policy, use the start/resume
         // loop to handle FunctionCall, NameLookup, and OsCall dispatching
-        if external_functions.is_some() || os_handler.is_some() {
+        if external_functions.is_some() || os_handler.is_some() || policy_engine.is_some() {
             return self.run_with_dispatch_loop(
                 env,
                 input_values,
@@ -222,6 +225,7 @@ impl Monty {
                 external_functions,
                 os_handler,
                 print_writer,
+                policy_engine,
             );
         }
 
@@ -246,6 +250,7 @@ impl Monty {
     /// is found, resolves it as a `Function`; otherwise returns `Undefined`.
     /// For `OsCall`, dispatches to the mount table if available, otherwise
     /// returns `NotImplementedError`.
+    #[expect(clippy::too_many_arguments)]
     fn run_with_dispatch_loop<'env>(
         &self,
         env: &'env Env,
@@ -254,6 +259,7 @@ impl Monty {
         external_functions: Option<Object<'env>>,
         os_handler: Option<OsHandler>,
         mut print_output: PrintWriter<'_>,
+        policy_engine: Option<&monty_policy::PolicyEngine>,
     ) -> Result<Either<JsMontyObject<'env>, JsMontyException>> {
         let runner = self.runner.clone();
 
@@ -287,6 +293,14 @@ impl Monty {
                             return Ok(Either::A(monty_to_js(&result, env)?));
                         }
                         RunProgress::FunctionCall(call) => {
+                            // Check Cedar policy before calling external functions.
+                            if let Some(engine) = policy_engine {
+                                if let Err(denied) = engine.authorize_external_call(&call.function_name) {
+                                    put_back(mount_table);
+                                    return Ok(Either::B(JsMontyException::new(denied.into())));
+                                }
+                            }
+
                             let return_value = call_external_function(
                                 env,
                                 external_functions.as_ref(),
@@ -320,6 +334,14 @@ impl Monty {
                             ));
                         }
                         RunProgress::OsCall(call) => {
+                            // Check Cedar policy before handling OS call.
+                            if let Some(engine) = policy_engine {
+                                if let Err(denied) = engine.authorize_os_call(&call.function_call) {
+                                    put_back(mount_table);
+                                    return Ok(Either::B(JsMontyException::new(denied.into())));
+                                }
+                            }
+
                             let result = handle_os_call(&call, &mut mount_table);
                             progress = match call.resume(result, print_output.reborrow()) {
                                 Ok(p) => p,
