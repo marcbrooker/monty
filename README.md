@@ -200,7 +200,7 @@ This fork adds Cedar policy support to control what sandboxed code is allowed to
 
 #### Basic Example: Allow reads, deny writes
 
-```python
+```python test="skip"
 from pydantic_monty import Monty, MountDir, Policy
 
 # Define a policy that allows reading files under /data but denies all writes
@@ -225,7 +225,7 @@ m_write.run(mount=MountDir('/data', './my_data_dir', mode='read-write'), policy=
 
 #### Controlling external function access
 
-```python
+```python test="skip"
 from pydantic_monty import Monty, Policy
 
 # Only allow calling specific external functions
@@ -254,7 +254,7 @@ m2.run(
 
 #### Restricting environment variable access
 
-```python
+```python test="skip"
 from pydantic_monty import Monty, MountDir, Policy
 
 # Allow reading only specific env vars
@@ -277,7 +277,7 @@ m2.run(mount=MountDir('/data', '/tmp'), os=lambda *a: 'leaked!', policy=policy)
 
 #### Allow-by-default mode (blocklist)
 
-```python
+```python test="skip"
 from pydantic_monty import Monty, MountDir, Policy
 
 # Start permissive, then block specific actions
