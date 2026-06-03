@@ -204,12 +204,12 @@ This fork adds Cedar policy support to control what sandboxed code is allowed to
 from pydantic_monty import Monty, MountDir, Policy
 
 # Define a policy that allows reading files under /data but denies all writes
-policy = Policy('''
+policy = Policy("""
     permit(principal, action == Monty::Action::"fs:read", resource)
     when { resource.path like "/data/*" };
 
     permit(principal, action == Monty::Action::"fs:exists", resource);
-''')
+""")
 
 m = Monty("from pathlib import Path; Path('/data/config.json').read_text()")
 result = m.run(
@@ -229,13 +229,13 @@ m_write.run(mount=MountDir('/data', './my_data_dir', mode='read-write'), policy=
 from pydantic_monty import Monty, Policy
 
 # Only allow calling specific external functions
-policy = Policy('''
+policy = Policy("""
     permit(principal, action == Monty::Action::"ext:call", resource)
     when { resource.name == "fetch_weather" };
 
     permit(principal, action == Monty::Action::"ext:call", resource)
     when { resource.name == "get_time" };
-''')
+""")
 
 m = Monty('result = fetch_weather("London")')
 result = m.run(
@@ -258,13 +258,13 @@ m2.run(
 from pydantic_monty import Monty, MountDir, Policy
 
 # Allow reading only specific env vars
-policy = Policy('''
+policy = Policy("""
     permit(principal, action == Monty::Action::"env:read", resource)
     when { resource.name == "HOME" || resource.name == "PATH" };
 
     permit(principal, action == Monty::Action::"fs:read", resource);
     permit(principal, action == Monty::Action::"fs:exists", resource);
-''')
+""")
 
 m = Monty("import os; os.getenv('HOME', 'unknown')")
 m.run(mount=MountDir('/data', '/tmp'), os=lambda *a: '/home/user', policy=policy)
