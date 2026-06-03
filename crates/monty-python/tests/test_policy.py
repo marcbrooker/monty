@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from inline_snapshot import snapshot
 
-from pydantic_monty import Monty, MountDir, Policy
+from pydantic_monty import Monty, MontyComplete, MountDir, Policy
 
 
 @pytest.fixture
@@ -215,4 +215,5 @@ def test_policy_with_start(test_dir: Path):
     m = Monty("from pathlib import Path; Path('/data/hello.txt').read_text()")
     result = m.start(mount=md, policy=policy)
     # Should complete successfully (start auto-dispatches OS calls when mount is provided)
+    assert isinstance(result, MontyComplete)
     assert result.output == snapshot('hello world')
