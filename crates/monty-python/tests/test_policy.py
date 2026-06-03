@@ -108,8 +108,7 @@ def test_policy_path_pattern(test_dir: Path):
 
 def test_policy_permits_external_function():
     policy = Policy(
-        'permit(principal, action == Monty::Action::"ext:call", resource)'
-        '  when { resource.name == "safe_func" };'
+        'permit(principal, action == Monty::Action::"ext:call", resource)  when { resource.name == "safe_func" };'
     )
     m = Monty('safe_func()')
     result = m.run(
@@ -121,8 +120,7 @@ def test_policy_permits_external_function():
 
 def test_policy_denies_external_function():
     policy = Policy(
-        'permit(principal, action == Monty::Action::"ext:call", resource)'
-        '  when { resource.name == "safe_func" };'
+        'permit(principal, action == Monty::Action::"ext:call", resource)  when { resource.name == "safe_func" };'
     )
     m = Monty('dangerous()')
     with pytest.raises(Exception) as exc_info:
@@ -140,9 +138,7 @@ def test_policy_denies_external_function():
 
 
 def test_policy_permits_env_read(test_dir: Path):
-    policy = Policy(
-        'permit(principal, action == Monty::Action::"env:read", resource);'
-    )
+    policy = Policy('permit(principal, action == Monty::Action::"env:read", resource);')
     md = MountDir('/data', str(test_dir), mode='read-only')
     m = Monty("import os; os.getenv('HOME', 'default')")
     # With env:read permitted, the OS call should proceed (may need OS handler)
@@ -157,9 +153,7 @@ def test_policy_permits_env_read(test_dir: Path):
 
 def test_policy_denies_env_read(test_dir: Path):
     # Only permit filesystem, not env
-    policy = Policy(
-        'permit(principal, action == Monty::Action::"fs:read", resource);'
-    )
+    policy = Policy('permit(principal, action == Monty::Action::"fs:read", resource);')
     md = MountDir('/data', str(test_dir), mode='read-only')
     m = Monty("import os; os.getenv('SECRET', 'fallback')")
     with pytest.raises(Exception) as exc_info:
