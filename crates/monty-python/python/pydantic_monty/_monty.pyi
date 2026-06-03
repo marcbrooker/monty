@@ -253,6 +253,7 @@ class Monty:
         external_functions: dict[str, Callable[..., Any]] | None = None,
         print_callback: Callable[[Literal['stdout'], str], None] | CollectStreams | CollectString | None = None,
         os: AbstractOS | None = None,
+        policy: Policy | None = None,
     ) -> Coroutine[Any, Any, Any]:
         """
         Execute the code with support for async external functions.
