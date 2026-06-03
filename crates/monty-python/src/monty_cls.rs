@@ -210,7 +210,7 @@ impl PyMonty {
         // objects keep accumulating across transitions.
         let print_target = PrintTarget::from_py(print_callback)?;
 
-        let policy_engine = policy.map(|p| &p.engine);
+        let policy_engine = policy.map(|p| p.engine.as_ref());
 
         // Run with appropriate tracker type (must branch due to different generic types)
         if let Some(limits) = limits {
@@ -289,7 +289,7 @@ impl PyMonty {
                 // until we reach the first non-OS event. Mounts are taken inside
                 // the helper and put back on every exit path.
                 if let Some(handler) = &os_handler {
-                    let pe = policy.map(|p| &p.engine);
+                    let pe = policy.map(|p| p.engine.as_ref());
                     drive_run_progress_through_os_calls(py, progress, handler, &print_target, &self.dc_registry, pe)?
                 } else {
                     progress
@@ -320,7 +320,8 @@ impl PyMonty {
     ///
     /// # Raises
     /// Various Python exceptions matching what the code would raise.
-    #[pyo3(signature = (*, inputs=None, limits=None, external_functions=None, print_callback=None, os=None))]
+    #[expect(clippy::too_many_arguments)]
+    #[pyo3(signature = (*, inputs=None, limits=None, external_functions=None, print_callback=None, os=None, policy=None))]
     fn run_async<'py>(
         &self,
         py: Python<'py>,
@@ -329,6 +330,7 @@ impl PyMonty {
         external_functions: Option<&Bound<'_, PyDict>>,
         print_callback: Option<&Bound<'_, PyAny>>,
         os: Option<Py<PyAny>>,
+        policy: Option<&PyPolicy>,
     ) -> PyResult<Bound<'py, PyAny>> {
         if let Some(ref os_cb) = os
             && !os_cb.bind(py).is_callable()
@@ -346,6 +348,7 @@ impl PyMonty {
         let ext_fns = external_functions.map(|d| d.clone().unbind());
         let print_target = PrintTarget::from_py(print_callback)?;
         let runner = self.runner.clone();
+        let policy_engine = policy.map(|p| p.engine.clone());
         if let Some(limits) = limits {
             Self::run_async_with_tracker(
                 py,
@@ -355,6 +358,7 @@ impl PyMonty {
                 os,
                 dc_registry,
                 print_target,
+                policy_engine,
                 move |cancel_flag| PySignalTracker::new_with_cancellation(LimitedTracker::new(limits), cancel_flag),
             )
         } else {
@@ -366,6 +370,7 @@ impl PyMonty {
                 os,
                 dc_registry,
                 print_target,
+                policy_engine,
                 move |cancel_flag| PySignalTracker::new_with_cancellation(NoLimitTracker, cancel_flag),
             )
         }
@@ -452,6 +457,7 @@ impl PyMonty {
         os: Option<Py<PyAny>>,
         dc_registry: DcRegistry,
         print_target: PrintTarget,
+        policy_engine: Option<Arc<monty_policy::PolicyEngine>>,
         tracker_builder: F,
     ) -> PyResult<Bound<'_, PyAny>>
     where
@@ -473,7 +479,15 @@ impl PyMonty {
             .await?
             .map_err(|e| Python::attach(|py| MontyError::new_err(py, e)))?;
 
-            let result = dispatch_loop_run(progress, external_functions, os, dc_registry, print_target).await;
+            let result = dispatch_loop_run(
+                progress,
+                external_functions,
+                os,
+                dc_registry,
+                print_target,
+                policy_engine,
+            )
+            .await;
             cancellation_guard.disarm();
             result
         })

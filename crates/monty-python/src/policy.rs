@@ -4,6 +4,8 @@
 //! passed to `Monty.run()` / `Monty.start()` to enforce fine-grained access
 //! control on sandbox operations.
 
+use std::sync::Arc;
+
 use monty_policy::{DefaultDecision, PolicyConfig, PolicyEngine};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
@@ -25,7 +27,7 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 /// ```
 #[pyclass(name = "Policy", module = "pydantic_monty", frozen)]
 pub struct PyPolicy {
-    pub(crate) engine: PolicyEngine,
+    pub(crate) engine: Arc<PolicyEngine>,
 }
 
 #[pymethods]
@@ -59,6 +61,8 @@ impl PyPolicy {
 
         let engine = PolicyEngine::new(policy_text, config).map_err(|e| PyValueError::new_err(e.message))?;
 
-        Ok(Self { engine })
+        Ok(Self {
+            engine: Arc::new(engine),
+        })
     }
 }

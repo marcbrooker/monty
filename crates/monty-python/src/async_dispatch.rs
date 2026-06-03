@@ -8,12 +8,13 @@
 //! VM resume calls are offloaded to `spawn_blocking()` to avoid
 //! blocking the Python event loop.
 
-use std::mem::drop;
+use std::{mem::drop, sync::Arc};
 
 use monty::{
     ExcType, ExtFunctionResult, MontyException, MontyObject, MontyRepl, NameLookupResult, OsFunctionCall, ReplProgress,
     ReplStartError, ResourceTracker, RunProgress,
 };
+use monty_policy::PolicyEngine;
 use pyo3::{
     exceptions::PyRuntimeError,
     prelude::*,
@@ -28,7 +29,7 @@ use tokio::{
 use crate::{
     convert::{get_docstring, monty_to_py, py_to_monty_value},
     dataclass::DcRegistry,
-    exceptions::{MontyError, exc_py_to_monty},
+    exceptions::{MontyError, exc_monty_to_py, exc_py_to_monty},
     external::{
         CallResult, ExternalFunctionRegistry, dispatch_method_call_or_coroutine, py_err_to_ext_result,
         py_obj_to_ext_result,
@@ -131,6 +132,7 @@ pub(crate) async fn dispatch_loop_run<T: ResourceTracker + Send + 'static>(
     os: Option<Py<PyAny>>,
     dc_registry: DcRegistry,
     print_target: PrintTarget,
+    policy_engine: Option<Arc<PolicyEngine>>,
 ) -> PyResult<Py<PyAny>> {
     let mut join_set: JoinSet<(u32, ExtFunctionResult)> = JoinSet::new();
 
@@ -140,6 +142,14 @@ pub(crate) async fn dispatch_loop_run<T: ResourceTracker + Send + 'static>(
                 return Python::attach(|py| monty_to_py(py, &result, &dc_registry));
             }
             RunProgress::FunctionCall(call) => {
+                // Check Cedar policy before calling external functions.
+                if !call.method_call
+                    && let Some(ref engine) = policy_engine
+                    && let Err(denied) = engine.authorize_external_call(&call.function_name)
+                {
+                    return Err(Python::attach(|py| exc_monty_to_py(py, denied.into())));
+                }
+
                 let call_result = dispatch_function_call(
                     &call.function_name,
                     call.method_call,
@@ -165,6 +175,13 @@ pub(crate) async fn dispatch_loop_run<T: ResourceTracker + Send + 'static>(
                 }
             }
             RunProgress::OsCall(mut call) => {
+                // Check Cedar policy before handling the OS call.
+                if let Some(ref engine) = policy_engine
+                    && let Err(denied) = engine.authorize_os_call(&call.function_call)
+                {
+                    return Err(Python::attach(|py| exc_monty_to_py(py, denied.into())));
+                }
+
                 let result = dispatch_os_call_py(call.take_function_call(), os.as_ref(), &dc_registry);
                 let target = print_target.clone_handle_detached();
                 progress =

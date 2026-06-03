@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cedar_policy::{Entity, EntityId, EntityTypeName, EntityUid, RestrictedExpression};
+use monty::fs::normalize_virtual_path;
 
 /// Creates an `EntityUid` for a `Monty::Script` principal.
 pub fn script_uid(name: &str) -> EntityUid {
@@ -13,9 +14,15 @@ pub fn script_uid(name: &str) -> EntityUid {
 }
 
 /// Creates an `Entity` for a filesystem path resource.
+///
+/// The path is normalized (`.`/`..` collapsed, made absolute) before being used
+/// as the entity ID and `path` attribute. This ensures Cedar pattern matching
+/// sees the canonical path, preventing traversal bypasses like
+/// `/data/../secret/file` matching a `/data/*` policy.
 pub fn path_entity(path: &str) -> Entity {
-    let uid = EntityUid::from_type_name_and_id(entity_type("Path"), EntityId::new(path));
-    let attrs = HashMap::from([("path".to_owned(), RestrictedExpression::new_string(path.to_owned()))]);
+    let normalized = normalize_virtual_path(path);
+    let uid = EntityUid::from_type_name_and_id(entity_type("Path"), EntityId::new(&normalized));
+    let attrs = HashMap::from([("path".to_owned(), RestrictedExpression::new_string(normalized))]);
     Entity::new(uid, attrs, HashSet::new()).expect("path entity construction is infallible with known schema")
 }
 

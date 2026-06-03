@@ -71,7 +71,7 @@ pub(super) fn resolve_path(
 /// The result is always absolute. Excess `..` components at the root collapse
 /// to `/` instead of escaping the sandbox namespace.
 #[must_use]
-pub(super) fn normalize_virtual_path(path: &str) -> String {
+pub fn normalize_virtual_path(path: &str) -> String {
     if is_already_normalized_absolute_path(path) {
         return path.to_owned();
     }

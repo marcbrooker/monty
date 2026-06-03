@@ -23,6 +23,7 @@ pub use error::MountError;
 pub use mount_mode::MountMode;
 pub use mount_table::{Mount, MountTable};
 pub use overlay_state::OverlayState;
+pub use path_security::normalize_virtual_path;
 
 mod common;
 mod direct;
