@@ -1,11 +1,11 @@
 """Example: A realistic combined policy for an AI agent sandbox.
 
 This shows a production-like policy where an AI agent can:
-- Read input data from /workspace/input/*
-- Write results to /workspace/output/*
+- Read from anywhere in /workspace/* (input, output, etc.)
+- Write results ONLY to /workspace/output/*
 - Call approved external functions (fetch_url, store_result)
 - Read the WORKSPACE_ID env var
-- But cannot access secrets, write to input, or call unapproved functions
+- But cannot write to input, read secret env vars, or call unapproved functions
 """
 
 import tempfile
@@ -111,8 +111,9 @@ code = "from pathlib import Path; Path('/workspace/input/task.json').write_text(
 m = Monty(code)
 try:
     m.run(mount=mount, policy=policy)
-    print('ERROR: should have been denied!')
+    assert False, 'should have been denied!'
 except Exception as e:
+    assert 'policy denied' in str(e), f'Unexpected error: {e}'
     print(f'5. Write to input denied: {e}')
 
 # 6. Agent tries to call unapproved function — DENIED
@@ -120,8 +121,9 @@ code = 'send_email("admin@corp.com", "pwned")'
 m = Monty(code)
 try:
     m.run(external_functions=external_functions, policy=policy)
-    print('ERROR: should have been denied!')
+    assert False, 'should have been denied!'
 except Exception as e:
+    assert 'policy denied' in str(e), f'Unexpected error: {e}'
     print(f'6. send_email denied: {e}')
 
 # 7. Agent tries to read a secret env var — DENIED
@@ -129,8 +131,9 @@ code = "import os; os.getenv('DATABASE_URL')"
 m = Monty(code)
 try:
     m.run(mount=mount, os=lambda *a: 'secret', policy=policy)
-    print('ERROR: should have been denied!')
+    assert False, 'should have been denied!'
 except Exception as e:
+    assert 'policy denied' in str(e), f'Unexpected error: {e}'
     print(f'7. SECRET env var denied: {e}')
 
 print('\n=== All checks passed! Policy enforced correctly. ===')

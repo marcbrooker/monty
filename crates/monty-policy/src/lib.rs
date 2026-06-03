@@ -35,7 +35,7 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-use cedar_policy::{Authorizer, Decision, Entities, PolicySet, Schema};
+use cedar_policy::{Authorizer, Decision, Entities, PolicySet, Schema, ValidationMode, Validator};
 use monty::OsFunctionCall;
 
 pub use crate::error::{PolicyDenied, PolicyParseError};
@@ -118,6 +118,17 @@ impl PolicyEngine {
         let policy_set = PolicySet::from_str(policy_text).map_err(|e| PolicyParseError {
             message: format!("policy parse error: {e}"),
         })?;
+
+        // Validate policies against the schema to reject references to unknown
+        // entity types or actions at construction time (not at evaluation time).
+        let validator = Validator::new(schema.clone());
+        let validation = validator.validate(&policy_set, ValidationMode::default());
+        if !validation.validation_passed() {
+            let errors: Vec<String> = validation.validation_errors().map(ToString::to_string).collect();
+            return Err(PolicyParseError {
+                message: format!("policy validation failed: {}", errors.join("; ")),
+            });
+        }
 
         Ok(Self {
             authorizer: Authorizer::new(),

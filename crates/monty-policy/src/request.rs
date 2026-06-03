@@ -95,9 +95,12 @@ pub fn os_call_to_authz_request(call: &OsFunctionCall) -> Option<AuthzRequest> {
             action: "env:read",
             resource: env_var_entity(&a.key),
         }),
+        // GetEnviron reads the entire environment dict. We use "__all__" as
+        // a synthetic resource name (not a valid env var name on any OS) so
+        // policies can distinguish "read all env vars" from "read a specific var".
         OsFunctionCall::GetEnviron => Some(AuthzRequest {
             action: "env:read",
-            resource: env_var_entity("*"),
+            resource: env_var_entity("__all__"),
         }),
 
         // --- Not policy-gated (informational, no security implications) ---
@@ -145,9 +148,16 @@ pub fn build_entities(principal_entity: &Entity, resource: &Entity) -> Entities 
 }
 
 /// Returns `true` if the file open mode implies a write operation.
+///
+/// `ReadUpdate` (`r+`) is included because it allows writing to the file
+/// even though it also reads.
 fn open_mode_is_write(mode: FileMode) -> bool {
     matches!(
         mode,
-        FileMode::Write(_) | FileMode::WriteUpdate(_) | FileMode::Append(_) | FileMode::AppendUpdate(_)
+        FileMode::ReadUpdate(_)
+            | FileMode::Write(_)
+            | FileMode::WriteUpdate(_)
+            | FileMode::Append(_)
+            | FileMode::AppendUpdate(_)
     )
 }
