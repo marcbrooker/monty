@@ -519,21 +519,21 @@ impl PyTrait<'_> for Value {
                 if *v2 == 0.0 {
                     Err(ExcType::zero_division().into())
                 } else {
-                    Ok(Some(Self::Float(v1 % v2)))
+                    Ok(Some(Self::Float(py_float_mod(*v1, *v2))))
                 }
             }
             (Self::Float(v1), Self::Int(v2)) => {
                 if *v2 == 0 {
                     Err(ExcType::zero_division().into())
                 } else {
-                    Ok(Some(Self::Float(v1 % (*v2 as f64))))
+                    Ok(Some(Self::Float(py_float_mod(*v1, *v2 as f64))))
                 }
             }
             (Self::Int(v1), Self::Float(v2)) => {
                 if *v2 == 0.0 {
                     Err(ExcType::zero_division().into())
                 } else {
-                    Ok(Some(Self::Float((*v1 as f64) % v2)))
+                    Ok(Some(Self::Float(py_float_mod(*v1 as f64, *v2))))
                 }
             }
             _ => Ok(None),
@@ -2301,6 +2301,16 @@ pub(crate) fn floor_divmod(a: i64, b: i64) -> Option<(i64, i64)> {
     } else {
         Some((quot, rem))
     }
+}
+
+/// Python-style floored float modulo: result has the same sign as the divisor.
+///
+/// Rust's `%` operator uses truncated division (C `fmod`), which gives the remainder
+/// the sign of the dividend. Python's `%` uses floored division, matching `a - b * floor(a/b)`.
+fn py_float_mod(a: f64, b: f64) -> f64 {
+    let r = a % b;
+    // Adjust when remainder and divisor have different signs
+    if r != 0.0 && ((r < 0.0) != (b < 0.0)) { r + b } else { r }
 }
 
 /// Converts a heap `HeapId` into its tagged `id()` value, ensuring it never collides with other spaces.
