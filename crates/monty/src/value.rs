@@ -2309,8 +2309,13 @@ pub(crate) fn floor_divmod(a: i64, b: i64) -> Option<(i64, i64)> {
 /// the sign of the dividend. Python's `%` uses floored division, matching `a - b * floor(a/b)`.
 fn py_float_mod(a: f64, b: f64) -> f64 {
     let r = a % b;
-    // Adjust when remainder and divisor have different signs
-    if r != 0.0 && ((r < 0.0) != (b < 0.0)) { r + b } else { r }
+    if r != 0.0 && ((r < 0.0) != (b < 0.0)) {
+        r + b
+    } else {
+        // Normalize sign of zero: CPython ensures 0.0 carries the divisor's sign,
+        // so e.g. `-0.47 % 1.0` yields `0.0` not `-0.0`.
+        f64::copysign(r, b)
+    }
 }
 
 /// Converts a heap `HeapId` into its tagged `id()` value, ensuring it never collides with other spaces.
