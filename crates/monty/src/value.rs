@@ -552,9 +552,9 @@ impl PyTrait<'_> for Value {
                     (*v2 != 0).then_some(0 == right_value)
                 }
             }
-            (Self::Float(v1), Self::Float(v2)) => Some(v1 % v2 == right_value as f64),
-            (Self::Float(v1), Self::Int(v2)) => Some(v1 % (*v2 as f64) == right_value as f64),
-            (Self::Int(v1), Self::Float(v2)) => Some((*v1 as f64) % v2 == right_value as f64),
+            (Self::Float(v1), Self::Float(v2)) => Some(py_float_mod(*v1, *v2) == right_value as f64),
+            (Self::Float(v1), Self::Int(v2)) => Some(py_float_mod(*v1, *v2 as f64) == right_value as f64),
+            (Self::Int(v1), Self::Float(v2)) => Some(py_float_mod(*v1 as f64, *v2) == right_value as f64),
             _ => None,
         }
     }

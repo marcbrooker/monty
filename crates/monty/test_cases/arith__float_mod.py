@@ -21,17 +21,20 @@ assert -7 % 3.0 == 2.0, 'negative int % positive float'
 assert 7.0 % -3 == -2.0, 'positive float % negative int'
 assert -1 % 10.0 == 9.0, 'negative int % positive float large'
 
-# === Edge cases ===
-assert 0.0 % 5.0 == 0.0, 'zero % positive'
-assert 0.0 % -5.0 == 0.0, 'zero % negative'
-assert -0.0 % 5.0 == 0.0, 'negative zero % positive'
-
-# === Sign of zero: CPython ensures zero result carries the divisor's sign ===
+# === Edge cases: sign of zero must match divisor (CPython semantics) ===
 import math
+
+r = 0.0 % 5.0
+assert r == 0.0 and math.copysign(1.0, r) > 0, 'zero % positive must be +0.0'
+
+r = 0.0 % -5.0
+assert r == 0.0 and math.copysign(1.0, r) < 0, 'zero % negative must be -0.0'
+
+r = -0.0 % 5.0
+assert r == 0.0 and math.copysign(1.0, r) > 0, 'negative zero % positive must be +0.0'
+
 r = -1.0 % 1.0
-assert r == 0.0, 'exact zero from negative % positive'
-assert math.copysign(1.0, r) > 0, '-1.0 % 1.0 must be +0.0 not -0.0'
+assert r == 0.0 and math.copysign(1.0, r) > 0, '-1.0 % 1.0 must be +0.0 not -0.0'
 
 r = 1.0 % -1.0
-assert r == 0.0, 'exact zero from positive % negative'
-assert math.copysign(1.0, r) < 0, '1.0 % -1.0 must be -0.0'
+assert r == 0.0 and math.copysign(1.0, r) < 0, '1.0 % -1.0 must be -0.0'
